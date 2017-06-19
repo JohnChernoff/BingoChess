@@ -144,10 +144,10 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	private void winner_bingo(BingoPlayer winner) {
 		ctell(winner.handle + " has a bingo!");
 		playData.updateOne(eq("name",winner.handle),inc("tickets",1));
-		playData.updateOne(eq("name",winner.handle),inc("total_tickets",1));
+		playData.updateOne(eq("name",winner.handle),inc("tickets_won",1));
 		int gold = 10 + (int)(bingoers.size()/2);
 		playData.updateOne(eq("name",winner.handle),inc("gold",gold));
-		playData.updateOne(eq("name",winner.handle),inc("total_gold",gold));
+		playData.updateOne(eq("name",winner.handle),inc("gold_won",gold));
 		for (Connection conn : serv.getAllConnections(true)) {
 			if (getBingoer(conn.getHandle()) != null) {
 				conn.tell("newgame","");
@@ -172,6 +172,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		if (doc == null) return null;
 		ObjectNode obj = mapper.createObjectNode();
 		obj.put("name", doc.getString("name"));
+		obj.put("tickets",doc.getInteger("tickets").toString());
 		obj.put("gold",doc.getInteger("gold").toString());
 		obj.put("games",doc.getInteger("games").toString());
 		return obj;
@@ -392,9 +393,9 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 				.append("name", name) //to lowercase?
 				.append("games", 1)
 				.append("gold", 100)
-				.append("total_gold", 100)
+				.append("gold_won", 0)
 				.append("tickets", 1)
-				.append("total_tickets", 1));
+				.append("tickets_won", 0));
 			return true;
 		}
 		else return false;

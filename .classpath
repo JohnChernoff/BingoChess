@@ -10,17 +10,17 @@
 			<attribute name="FROM_GRADLE_MODEL" value="true"/>
 		</attributes>
 	</classpathentry>
-	<classpathentry combineaccessrules="false" exported="true" kind="src" path="/Lib_Lichess"/>
-	<classpathentry combineaccessrules="false" exported="true" kind="src" path="/Lib_Twitch"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/jackson/jackson-annotations-2.7.2.jar"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/jackson/jackson-core-2.8.1.jar"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/jackson/jackson-databind-2.6.7.jar"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/mongo/mongo-java-driver-3.4.2.jar"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/jetty-distribution-9.2.17.v20160517/lib/jetty-client-9.2.17.v20160517.jar"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/jetty-distribution-9.2.17.v20160517/lib/websocket/websocket-api-9.2.17.v20160517.jar"/>
-	<classpathentry combineaccessrules="false" exported="true" kind="src" path="/Lib_ZugServ"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/jetty-distribution-9.2.17.v20160517/lib/websocket/websocket-client-9.2.17.v20160517.jar"/>
-	<classpathentry exported="true" kind="lib" path="C:/dev/lib/java/pircbot-1.5.0/pircbot.jar"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/Lib_Lichess"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/Lib_Twitch"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/jackson/jackson-annotations-2.7.2.jar"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/jackson/jackson-core-2.8.1.jar"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/jackson/jackson-databind-2.6.7.jar"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/mongo/mongo-java-driver-3.4.2.jar"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/jetty-distribution-9.2.17.v20160517/lib/jetty-client-9.2.17.v20160517.jar"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/jetty-distribution-9.2.17.v20160517/lib/websocket/websocket-api-9.2.17.v20160517.jar"/>
+	<classpathentry combineaccessrules="false" kind="src" path="/Lib_ZugServ"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/jetty-distribution-9.2.17.v20160517/lib/websocket/websocket-client-9.2.17.v20160517.jar"/>
+	<classpathentry kind="lib" path="C:/dev/lib/java/pircbot-1.5.0/pircbot.jar"/>
 	<classpathentry kind="con" path="org.eclipse.buildship.core.gradleclasspathcontainer"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.8/"/>
 	<classpathentry kind="output" path="bin"/>
