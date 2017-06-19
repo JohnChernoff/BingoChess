@@ -2,10 +2,14 @@
 //Do you get anything for a double bingo?
 //x3 gold for double, x6 for triple, etc.
 //sanity checks all over the place
+//raffle payouts?
+
 package org.chernovia.net.games.bingochess;
 
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
+import com.mongodb.client.model.Sorts;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -17,6 +21,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Dimension;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Vector;
 
@@ -48,11 +53,12 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	
 	ObjectMapper mapper = new ObjectMapper(); 
 	String gameType = "blitz";
+	MongoClient mongoClient;
+	MongoDatabase bingoBase;
 	MongoCollection<Document> playData;
 	String bingoURL;
 	BingoServ serv;
 	GameClient tv_client;
-	
 	GameData tv_data;
 	HashMap<String,BingoPlayer> bingoers;
 	HashMap<String,Chatter> twits;
@@ -81,8 +87,8 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		bingoURL = args[5];
 		followTVGame();
 		MongoClientURI connStr = new MongoClientURI("mongodb://bingobot:" + args[6] + "@localhost:27017/BingoBase");
-		MongoClient mongoClient = new MongoClient(connStr);
-		MongoDatabase bingoBase = mongoClient.getDatabase("BingoBase");
+		mongoClient = new MongoClient(connStr);
+		bingoBase = mongoClient.getDatabase("BingoBase");
 		playData = bingoBase.getCollection("players");
 	}
 	
@@ -137,24 +143,38 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	
 	private void winner_bingo(BingoPlayer winner) {
 		ctell(winner.handle + " has a bingo!");
-		playData.updateOne(eq("name",winner.handle),inc("gold",10 + (int)(bingoers.size()/2)));
+		playData.updateOne(eq("name",winner.handle),inc("tickets",1));
+		playData.updateOne(eq("name",winner.handle),inc("total_tickets",1));
+		int gold = 10 + (int)(bingoers.size()/2);
+		playData.updateOne(eq("name",winner.handle),inc("gold",gold));
+		playData.updateOne(eq("name",winner.handle),inc("total_gold",gold));
 		for (Connection conn : serv.getAllConnections(true)) {
 			if (getBingoer(conn.getHandle()) != null) {
 				conn.tell("newgame","");
-				giveFinger(conn);
+				conn.tell("finger",finger(conn.getHandle()));
 			}
 		}
 		bingoers.clear(); //p.observers.clear();
 	}
 	
-	private void giveFinger(Connection conn) {
-		Document playDoc = playData.find(eq("name",conn.getHandle())).first();
-		if (playDoc != null) {
-			ObjectNode obj = mapper.createObjectNode();
-			obj.put("gold",playDoc.getInteger("gold").toString());
-			obj.put("games",playDoc.getInteger("games").toString());
-			conn.tell("finger", obj);
-		}
+	private JsonNode finger(String handle) {
+		return playerToJson(playData.find(eq("name",handle)).first());
+	}
+	
+	private ArrayNode top(String crit, int n) {
+		FindIterable<Document> docs = playData.find().sort(Sorts.orderBy(Sorts.ascending(crit))).limit(n);
+		ArrayNode players = mapper.createArrayNode();
+		for (Document doc : docs) players.add(playerToJson(doc));
+		return players;
+	}
+	
+	private JsonNode playerToJson(Document doc) {
+		if (doc == null) return null;
+		ObjectNode obj = mapper.createObjectNode();
+		obj.put("name", doc.getString("name"));
+		obj.put("gold",doc.getInteger("gold").toString());
+		obj.put("games",doc.getInteger("games").toString());
+		return obj;
 	}
 	
 	private void followTVGame() {
@@ -170,6 +190,8 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		lastMoveTime = System.currentTimeMillis();
 		log("Following: " + gid);
 		tv_data = LichessUtils.getGame(gid);
+		//newMongoPlayer(tv_data.players.black.userId); //populate the database!
+		//newMongoPlayer(tv_data.players.white.userId);
 		tv_client.newGame(gid,this);
 	}
 
@@ -195,6 +217,55 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		if (twits.containsKey(handle)) return twits.get(handle);
 		else {
 			Chatter twit = new Chatter(handle); twits.put(handle,twit); return twit;
+		}
+	}
+	
+	public void ctell(String msg) { ctell(getName(),msg,false); }
+	public void ctell(String sender, String msg, boolean echo) {
+		ObjectNode twit = mapper.createObjectNode();
+		twit.set("chatter",getTwit(sender).chatterToJSON());
+		twit.put("msg", msg);
+		for (Connection conn : serv.getAllConnections(true)) conn.tell("ctell",twit);
+		if (echo) tch(sender + ": " + msg);
+	}
+	
+	@Override
+	public void tell(String handle, String msg) {
+		log("TELL -> " + handle + " : " + msg);
+		super.tell(handle,msg);
+		for (Connection conn : getConns(handle)) conn.tell("new_tell",msg);
+	}
+	
+	@Override
+	public void handleMsg(String chan, String sender, String msg, boolean whisper) { //TODO: is this needed?
+		if (!whisper) ctell(sender,msg,false);
+		else {
+			String[] tokens = msg.split(" ");
+			if (tokens.length == 2 && tokens[0].equalsIgnoreCase("TOP")) {
+				tell(sender,top(tokens[1],10).toString());
+			}
+		}
+	}
+	
+	@Override
+	public void adminCmd(String cmd, boolean whisper) {
+		String[] tokens = cmd.split(" ");
+		switch (tokens.length) {
+			case 1:
+				if (tokens[0].equalsIgnoreCase("NEWGAME")) followTVGame();
+				else if (tokens[0].equalsIgnoreCase("RAFFLE")) tch(raffle(true) + " wins the raffle!"); //TODO: tch?!
+				break;
+			case 2:
+				if (tokens[0].equalsIgnoreCase("GAME")) {
+					followTVGame(tokens[1]);
+					ctell("Following: " + tokens[1]);
+				}
+				else if (tokens[0].equalsIgnoreCase("GAMETYPE")) {
+					gameType = tokens[1];
+					ctell("Game type: " + gameType);
+					for (GameClient.GameThread thread : tv_client.getGames()) thread.getSock().end();
+				}
+				break;
 		}
 	}
 	
@@ -233,45 +304,14 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		followTVGame();
 	}
 	
-	@Override
-	public void handleMsg(String chan, String sender, String msg, boolean whisper) {
-		if (!whisper) ctell(sender,msg,false);
-		//else log(sender + " whispered: " + msg);
-	}
-
-	public void ctell(String msg) { ctell(getName(),msg,false); }
-	public void ctell(String sender, String msg, boolean echo) {
-		ObjectNode twit = mapper.createObjectNode();
-		twit.set("chatter",getTwit(sender).chatterToJSON());
-		twit.put("msg", msg);
-		for (Connection conn : serv.getAllConnections(true)) conn.tell("ctell",twit);
-		if (echo) tch(sender + ": " + msg);
-	}
-	
-	@Override
-	public void adminCmd(String cmd, boolean whisper) {
-		String[] tokens = cmd.split(" ");
-		switch (tokens.length) {
-			case 1:
-				if (tokens[0].equalsIgnoreCase("NEWGAME")) followTVGame();
-				break;
-			case 2:
-				if (tokens[0].equalsIgnoreCase("GAME")) {
-					followTVGame(tokens[1]);
-					ctell("Following: " + tokens[1]);
-				}
-				else if (tokens[0].equalsIgnoreCase("GAMETYPE")) {
-					gameType = tokens[1];
-					ctell("Game type: " + gameType);
-					for (GameClient.GameThread thread : tv_client.getGames()) thread.getSock().end();
-				}
-				break;
-		}
-	}
-	
 	private boolean handleGeneralCmd(Connection conn, String cmd, JsonNode data) {
 		if (cmd.equalsIgnoreCase("UPDATE")) updateAll(conn);
-		else if (cmd.equalsIgnoreCase("FINGER")) giveFinger(conn);
+		else if (cmd.equalsIgnoreCase("FINGER")) {
+			conn.tell("finger",finger(conn.getHandle()));
+		}
+		else if (cmd.equalsIgnoreCase("TOP")) {
+			conn.tell("top",top(data.asText(),10));
+		}
 		else if (cmd.equalsIgnoreCase("TELL_CHAN")) {
 			ctell(conn.getHandle(),data.asText(),true);
 		}
@@ -339,14 +379,46 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	public void buyCard(String handle, int fee) {
-		if (playData.find(eq("name", handle)).first() == null) {
-			playData.insertOne(new Document().append("name", handle).append("gold",100).append("games", 1));
-		}
-		else {
+		if (!newMongoPlayer(handle)) {
 			playData.updateOne(eq("name",handle),inc("games",1));
 			playData.updateOne(eq("name",handle),inc("gold",-fee));
 		}
-		whisper(handle,"You have bought a new card.");
+		for (Connection conn : getConns(handle)) conn.tell("new_tell","You have bought a new card.");
+	}
+	
+	public boolean newMongoPlayer(String name) {
+		if (playData != null && playData.find(eq("name", name)).first() == null) {
+			playData.insertOne(new Document()
+				.append("name", name) //to lowercase?
+				.append("games", 1)
+				.append("gold", 100)
+				.append("total_gold", 100)
+				.append("tickets", 1)
+				.append("total_tickets", 1));
+			return true;
+		}
+		else return false;
+	}
+	
+	public String raffle(boolean mock) {
+		FindIterable<Document> docs = playData.find();
+		ArrayList<String> playBag = new ArrayList<String>();
+		for (Document doc : docs) {
+			String name = doc.getString("name");
+			int tickets = doc.getInteger("tickets");
+			for (int i=0; i < tickets; i++) {
+				playBag.add(name);
+			}
+			if (!mock) {
+				playData.updateOne(eq("name",name),set("tickets",0));
+				playData.updateOne(eq("name",name),set("gold",100));
+			}
+		}
+		if (playBag.size() > 0) {
+			Collections.shuffle(playBag);
+			return playBag.get(0);
+		}
+		else return null;
 	}
 }
 
