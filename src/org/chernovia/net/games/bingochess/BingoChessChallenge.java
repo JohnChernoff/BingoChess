@@ -320,7 +320,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	MongoCollection<Document> playData;
 	String bingoURL;
 	BingoServ serv;
-	GameSock tv_game;
+	GameClient tv_game;
 	GameData tv_data;
 	Chatter announcer;
 	HashMap<String,LichessGame> chessgames;

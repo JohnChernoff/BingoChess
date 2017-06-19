@@ -51,7 +51,8 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	MongoCollection<Document> playData;
 	String bingoURL;
 	BingoServ serv;
-	GameSock tv_game;
+	GameClient tv_client;
+	
 	GameData tv_data;
 	HashMap<String,BingoPlayer> bingoers;
 	HashMap<String,Chatter> twits;
@@ -66,6 +67,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	public BingoChess(String[] args) {
+		tv_client = new GameClient();
 		twits = new HashMap<String,Chatter>();
 		bingoers = new HashMap<String,BingoPlayer>();
 		BingoPlayer.SQUARE_BAG = new Vector<Dimension>();
@@ -168,10 +170,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		lastMoveTime = System.currentTimeMillis();
 		log("Following: " + gid);
 		tv_data = LichessUtils.getGame(gid);
-		tv_game = new GameSock(
-		"wss://socket.lichess.org/" + gid + "/white/socket?sri=zug" + (int)(Math.random() * 999));
-		tv_game.addWatcher(this);
-		tv_game.start();
+		tv_client.newGame(gid,this);
 	}
 
 	private void updateAll(Connection conn) { update(conn,true,true,true); }
@@ -200,7 +199,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	@Override
-	public void gameMsg(String message) {
+	public void gameMsg(GameSock sock, String message) {
 		try {
 			JsonNode node = mapper.readTree(message);
 			JsonNode type = node.get("t");
@@ -208,18 +207,18 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 			//if (data != null) log(message);
 			if (type != null) switch (type.textValue()) {
 				case "b": 
-					for (int i=0; i < data.size(); i++) gameMsg(data.get(i).toString());
+					for (int i=0; i < data.size(); i++) gameMsg(sock,data.get(i).toString());
 					break;
 				case "move": 
 					newMove(data); 
 					lastMoveTime = System.currentTimeMillis();
 					break; 
 				case "end":
-					tv_game.end();
+					sock.end();
 					break;
 				default: 
 					if (lastMoveTime < System.currentTimeMillis() - TIMEOUT) {
-						log("TIMEOUT!"); tv_game.end();
+						log("TIMEOUT!"); sock.end();
 					}
 					break;
 			}
@@ -229,7 +228,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	@Override
-	public void finished() {
+	public void finished(GameSock sock) {
 		log("Game finished!");
 		followTVGame();
 	}
@@ -264,7 +263,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 				else if (tokens[0].equalsIgnoreCase("GAMETYPE")) {
 					gameType = tokens[1];
 					ctell("Game type: " + gameType);
-					tv_game.end();
+					for (GameClient.GameThread thread : tv_client.getGames()) thread.getSock().end();
 				}
 				break;
 		}
