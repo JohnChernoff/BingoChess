@@ -3,6 +3,7 @@
 //x3 gold for double, x6 for triple, etc.
 //sanity checks all over the place
 //raffle payouts?
+//confirm twitch (or some other) auth 
 
 package org.chernovia.net.games.bingochess;
 
@@ -162,7 +163,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	private ArrayNode top(String crit, int n) {
-		FindIterable<Document> docs = playData.find().sort(Sorts.orderBy(Sorts.ascending(crit))).limit(n);
+		FindIterable<Document> docs = playData.find().sort(Sorts.orderBy(Sorts.descending(crit))).limit(n);
 		ArrayNode players = mapper.createArrayNode();
 		for (Document doc : docs) players.add(playerToJson(doc));
 		return players;
@@ -311,7 +312,8 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 			conn.tell("finger",finger(conn.getHandle()));
 		}
 		else if (cmd.equalsIgnoreCase("TOP")) {
-			conn.tell("top",top(data.asText(),10));
+			try { conn.tell("top",top(data.get("crit").asText(),data.get("limit").asInt())); }
+			catch (Exception augh) { conn.tell("error",augh.getMessage()); }
 		}
 		else if (cmd.equalsIgnoreCase("TELL_CHAN")) {
 			ctell(conn.getHandle(),data.asText(),true);
@@ -355,7 +357,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 		catch (IOException e) { e.printStackTrace(); return; }
 		String cmd = node.get("cmd").asText();
 		JsonNode data = node.get("data");
-		log("CMD: " + cmd + ", from " + conn.getHandle());
+		//log("CMD: " + cmd + ", from " + conn.getHandle());
 		//log("general cmd...");
 		if (handleGeneralCmd(conn,cmd,data)) return;
 		//log("bingo cmd...");
@@ -389,6 +391,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	
 	public boolean newMongoPlayer(String name) {
 		if (playData != null && playData.find(eq("name", name)).first() == null) {
+			log("Adding new mongodb entry: " + name);
 			playData.insertOne(new Document()
 				.append("name", name) //to lowercase?
 				.append("games", 1)
