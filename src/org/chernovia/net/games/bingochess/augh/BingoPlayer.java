@@ -1,12 +1,10 @@
-package org.chernovia.net.games.bingochess;
+package org.chernovia.net.games.bingochess.augh;
 
 import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Vector;
-
 import org.chernovia.lib.net.zugserv.Connection;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;

@@ -1,4 +1,4 @@
-package org.chernovia.net.games.bingochess;
+package org.chernovia.net.games.bingochess.augh;
 
 import java.awt.Color;
 

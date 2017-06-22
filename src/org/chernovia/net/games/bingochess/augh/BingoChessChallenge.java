@@ -2,7 +2,8 @@
 //Do you get anything for a double bingo?
 //x3 gold for double, x6 for triple, etc.
 //sanity checks all over the place
-package org.chernovia.net.games.bingochess;
+
+package org.chernovia.net.games.bingochess.augh;
 
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientURI;
@@ -23,18 +24,33 @@ import java.util.Vector;
 import org.bson.Document;
 import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Updates.*;
-
-import org.chernovia.lib.net.zugclient.WebSock;
-import org.chernovia.lib.net.zugclient.WebSockListener;
-import org.chernovia.lib.net.zugserv.ConnListener;
-import org.chernovia.lib.net.zugserv.Connection;
-import org.chernovia.lib.net.zugserv.WebSockConn;
-import org.chernovia.lib.net.zugserv.WebSockServ;
-import org.chernovia.lichess.*;
+import org.chernovia.lib.net.zugserv.*;
+import org.chernovia.lichess.GameClient;
+import org.chernovia.lichess.augh.*;
 import org.chernovia.lichess.gson.GameData;
 import org.chernovia.twitch.TwitchBot;
+import org.eclipse.jetty.websocket.api.annotations.WebSocket;
 
 public class BingoChessChallenge extends TwitchBot implements BingoListener, ConnListener {
+	
+	@WebSocket
+	class LichessGameSock extends LiSock {
+		Lichesser lich; //is this necessary?
+		JsonNode lastPos = null;
+		
+		public LichessGameSock(String gid,Lichesser l) {	
+			super(gid,l.handle,"wss://socket.lichess.org/" + gid + "/socket/v2", l.sock.getUpgrade()); 
+			lich = l;
+			String FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+			JsonNode playNode = getGame().get("player"); JsonNode oppNode = getGame().get("opponent");
+			if (playNode.get("color").asText().equals("white")) lastPos = gameToJson(FEN,
+						playNode.get("user").get("username").asText(),playNode.get("rating").asInt(),999,
+						oppNode.get("user").get("username").asText(),oppNode.get("rating").asInt(),999,true);
+			else lastPos = gameToJson(FEN,
+					oppNode.get("user").get("username").asText(),oppNode.get("rating").asInt(),999,
+					playNode.get("user").get("username").asText(),playNode.get("rating").asInt(),999,true);
+		}
+	}
 
 	class BingoServ extends WebSockServ {
 
@@ -46,28 +62,26 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		}
 	}
 	
-	class ChessPlayer extends BingoPlayer implements WebSockListener {
-		String gid;
+	class ChessPlayer extends BingoPlayer implements LiWatcher {
+		LichessGameSock sock;
 		String opponent;
-		JsonNode lastPos;
-		JsonNode gameData;
-		WebSock gameSock;
-		
-		public ChessPlayer(String id, LiClient client, int f, BingoListener l) {
-			super(client.username, f, l); 
-			try { gameSock = client.startGame(id, this); }
-			catch (Exception augh) { augh.printStackTrace(); }
-			gid = id; gameData = client.getGame(gid);
-			log("Initial Game State: " + gameData.toString());
-			JsonNode p = gameData.get("player");
-			JsonNode opp = gameData.get("opponent"); opponent = opp.get("user").get("id").asText().toLowerCase();
-			JsonNode game = gameData.get("game");
-			JsonNode clock = gameData.get("clock");
-			if (p.get("color").asText().equals("white")) lastPos = gameToJson(game.get("fen").asText(),
+				
+		public ChessPlayer(LichessGameSock s, int f, BingoListener l) {
+			super(s.lich.handle, f, l); 
+			sock = s;  
+			sock.addWatcher(this);
+			sock.start();
+			JsonNode g = sock.getGame();
+			log("Initial Game State: " + g.toString());
+			JsonNode p = g.get("player");
+			JsonNode opp = g.get("opponent"); opponent = opp.get("user").get("id").asText().toLowerCase();
+			JsonNode game = g.get("game");
+			JsonNode clock = g.get("clock");
+			if (p.get("color").asText().equals("white")) sock.lastPos = gameToJson(game.get("fen").asText(),
 					p.get("user").get("username").asText(),p.get("rating").asInt(),clock.get("white").asInt(),
 					opp.get("user").get("username").asText(),opp.get("rating").asInt(),clock.get("black").asInt(),
 					true);
-			else lastPos = gameToJson(game.get("fen").asText(),
+			else sock.lastPos = gameToJson(game.get("fen").asText(),
 					opp.get("user").get("username").asText(),opp.get("rating").asInt(),clock.get("white").asInt(),
 					p.get("user").get("username").asText(),p.get("rating").asInt(),clock.get("black").asInt(),
 					true);
@@ -84,7 +98,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 			String FEN = data.get("fen").asText();
 			JsonNode gameObj = mapper.createObjectNode();
 			for (Connection conn : getConns(handle)) {
-				JsonNode playNode = gameData.get("player"); JsonNode oppNode = gameData.get("opponent");
+				JsonNode playNode = sock.getGame().get("player"); JsonNode oppNode = sock.getGame().get("opponent");
 				if (playNode.get("color").asText().equals("white")) gameObj = gameToJson(FEN,
 							playNode.get("user").get("username").asText(),playNode.get("rating").asInt(),wTime,
 							oppNode.get("user").get("username").asText(),oppNode.get("rating").asInt(),bTime,wMove);
@@ -92,7 +106,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 						oppNode.get("user").get("username").asText(),oppNode.get("rating").asInt(),wTime,
 						playNode.get("user").get("username").asText(),playNode.get("rating").asInt(),bTime,wMove);
 				conn.tell("game", gameObj);
-				lastPos = gameObj;
+				sock.lastPos = gameObj;
 			}
 			String move = data.get("uci").asText();
 			if (move.length() >= 4) {
@@ -102,7 +116,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		}
 		
 		@Override
-		public void sock_msg(WebSock sock, String message) {
+		public void lisock_msg(String message) {
 			try {
 				JsonNode node = mapper.readTree(message);
 				JsonNode type = node.get("t");
@@ -110,14 +124,14 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 				//if (data != null) log(message); else return;
 				if (type != null) switch (type.textValue()) {
 					case "b": 
-						for (int i=0; i < data.size(); i++) sock_msg(sock,data.get(i).toString());
+						for (int i=0; i < data.size(); i++) lisock_msg(data.get(i).toString());
 						break;
 					case "move": 
 						log("New move for " + handle + ": " + data);
 						this.newMove(data); 
 						JsonNode winner = data.get("winner");
 						if (winner != null && 
-						winner.asText().equals(gameData.get("player").get("color").asText())) {
+						winner.asText().equals(sock.getGame().get("player").get("color").asText())) {
 							winner_chess(this);
 						}
 						break;
@@ -125,7 +139,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 						log("End of game detected!");
 						if (data != null) { 
 							log("End of game: " + data.toString());
-							if (data.asText().equals(gameData.get("player").get("color").asText())) {
+							if (data.asText().equals(sock.getGame().get("player").get("color").asText())) {
 								winner_chess(this);
 							}
 						}
@@ -139,50 +153,94 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		}
 
 		@Override
-		public void sock_fin(WebSock sock) {
+		public void lisock_fin() {
 			log("Sock done for player: " + handle);
-			chessplayers.remove(gid + handle);
+			chessplayers.remove(sock.getGameId() + handle);
 			for (Connection conn: getConns(handle)) {
-				chessgames.remove(gameData.get("game").get("id").asText());
+				chessgames.remove(sock.getGame().get("game").get("id").asText());
 				conn.tell("end_lichess_game","");
 				updateAll(conn); 
 			}
 		}
 	}
 	
-	class Lichesser extends LiClient {
+	class Lichesser extends Chatter implements LiWatcher {
+		@WebSocket
+		class ChallengeSock extends LiSock {
+			String opponent, gid;
+			public ChallengeSock(String id, String opp) {
+				super(id,handle,"wss://socket.lichess.org/challenge/" + id + "/socket/v2",
+				sock.getUpgrade());
+				opponent = opp; 
+			}
+			public void mainLoop() throws InterruptedException {
+				while(getSession() != null && getSession().isOpen()) {
+					send(lichessDatagram("challenge",opponent).toString());
+					sleep(1250);
+				}
+			}
+		}
+		LiSock sock;
 		int wager = 10;
 		HashMap<String,JsonNode> incomingChallenges;
-		Chatter chatter;
+		HashMap<String,ChallengeSock> outgoingChallenges;
 		
-		public Lichesser(String loc, String user, String pwd) throws Exception {
-			super(loc,user,pwd);
+		public Lichesser(LiSock s, String h) {
+			super(h);
 			incomingChallenges = new HashMap<String,JsonNode>();
-			chatter = new Chatter(user);
+			outgoingChallenges = new HashMap<String,ChallengeSock>();
+			sock = s;
+			sock.addWatcher(this);
+			sock.start();
+		}
+		
+		private void createChallenge(String opponent) {
+			try {
+				JsonNode challenge = sock.createChallenge(opponent, 1, true, 3, 0, "random"); //TODO: customize time
+				if (challenge != null) {
+					log("Creating New Challenge: " + challenge.toString());
+					String id = challenge.get("challenge").get("id").asText();
+					if (!outgoingChallenges.containsKey(id)) {
+						ChallengeSock s = 
+						new ChallengeSock(id,challenge.get("challenge").get("destUser").get("id").asText());
+						outgoingChallenges.put(id,s);
+						s.start();
+					}
+				}
+			}
+			catch (Exception augh) {
+				for (Connection conn: getConns(handle)) conn.tell("error",augh.getMessage());
+			}
+		}
+		
+		public void clearOutgoingChallenges() {
+			for (ChallengeSock s : outgoingChallenges.values()) s.end();
+			outgoingChallenges.clear();
 		}
 		
 		private void startGame(String gid, BingoListener l) {
-			JsonNode playing = finger().get("nowPlaying");
+			JsonNode playing = sock.finger().get("nowPlaying");
 			log ("starting, gid: " + gid);
 			log("starting, playing: " + playing);
 			for (int i=0; i<playing.size();i++) {
 				if (playing.get(i).get("gameId").asText().equals(gid)) {
 					String opponent = playing.get(i).get("opponent").get("id").asText().toLowerCase(); //lowercase
 					String color = playing.get(i).get("color").asText();
-					ChessPlayer newPlayer = new ChessPlayer(playing.get(i).get("fullId").asText(),this,wager,l);
-					chessplayers.put(gid + username.toLowerCase(),newPlayer);
+					ChessPlayer newPlayer = new ChessPlayer(
+							new LichessGameSock(playing.get(i).get("fullId").asText(),this),wager,l);
+					chessplayers.put(gid + handle.toLowerCase(),newPlayer);
 					if (!chessgames.containsKey(gid)) {
-						log("Creating game: " + username + "-> " + opponent);
+						log("Creating game: " + handle + "-> " + opponent);
 						if (color.equals("white")) {
-							chessgames.put(gid,new LichessGame(gid,username,opponent));
+							chessgames.put(gid,new LichessGame(gid,handle,opponent));
 						}
-						else chessgames.put(gid,new LichessGame(gid,opponent,username.toLowerCase()));
+						else chessgames.put(gid,new LichessGame(gid,opponent,handle.toLowerCase()));
 					}
 					incomingChallenges.clear();
 					clearOutgoingChallenges();
-					for (Connection conn : getConns(username)) {
+					for (Connection conn : getConns(handle)) {
 							conn.tell("begin_lichess_game", playing.get(i));
-							conn.tell("game", newPlayer.lastPos);
+							conn.tell("game", newPlayer.sock.lastPos);
 							updateChallenges(conn,this);
 							//updateLichess(conn);
 					}
@@ -194,31 +252,30 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 
 		public JsonNode toJson() {
 			ObjectNode obj = mapper.createObjectNode();
-			obj.put("handle", username);
+			obj.put("handle", handle);
 			obj.put("wager", wager);
 			return obj;
 		}
 		
 		@Override
-		public void sock_msg(WebSock sock, String message) {
-			log(username + "--> New message: " + message);
+		public void lisock_msg(String message) {
 			try {
 				JsonNode node = mapper.readTree(message);
 				JsonNode type = node.get("t");
 				JsonNode data = node.get("d");
 				if (type != null) switch (type.textValue()) {
 					case "b": 
-						for (int i=0; i < data.size(); i++) sock_msg(sock,data.get(i).toString());
+						for (int i=0; i < data.size(); i++) lisock_msg(data.get(i).toString());
 						break;
 					case "challenges":
 						incomingChallenges.clear();
 						JsonNode in = data.get("in");
 						if (in.size() > 0) {
-							log("Challenge received as " + username + ": " + data.toString());
+							log("Challenge received as " + handle + ": " + data.toString());
 							for (int i=0;i<in.size();i++) {
 								incomingChallenges.put(in.get(i).get("id").asText(),in.get(i)); 
 							}
-							for (Connection conn : getConns(username)) updateChallenges(conn,this);
+							for (Connection conn : getConns(handle)) updateChallenges(conn,this);
 						}
 						break; 
 					default: 
@@ -229,11 +286,11 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		}
 
 		@Override
-		public void sock_fin(WebSock sock) {
-			log("Logged out: " + username);
+		public void lisock_fin() {
+			log("Logged out: " + handle);
 			clearOutgoingChallenges();
-			lichs.remove(username);
-			for (Connection conn : getConns(username)) conn.tell("lichess_logout", ""); 
+			lichs.remove(handle);
+			for (Connection conn : getConns(handle)) conn.tell("lichess_logout", ""); 
 			for (Connection c : serv.getAllConnections(true)) updateLichess(c);
 		}
 	}
@@ -273,7 +330,6 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	long lastMoveTime;
 			
 	public static void main(String[] args) {
-		try { LiClient.init(); } catch (Exception e) { e.printStackTrace(); }
 		WebSockConn.VERBOSITY = 0;
 		new BingoChessChallenge(args);
 		//bingo.newPlayer("Zugx1"); bingo.newPlayer("Zugx2"); bingo.newPlayer("Zugx3");
@@ -386,7 +442,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		ObjectNode obj = mapper.createObjectNode();
 		ArrayNode logins = mapper.createArrayNode();
 		for (Lichesser lich : lichs.values()) {
-			if (!lich.username.equalsIgnoreCase(conn.getHandle())) logins.add(lich.toJson());
+			if (!lich.handle.equalsIgnoreCase(conn.getHandle())) logins.add(lich.toJson());
 		}
 		obj.set("logins", logins); 
 		//JsonArray gamelist = new JsonArray();
@@ -404,7 +460,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	}
 	
 	private void updateChess(Connection conn, ChessPlayer player) {
-		if (player != null) conn.tell("game", player.lastPos);
+		if (player != null) conn.tell("game", player.sock.lastPos);
 	}
 	
 	private void updateTV(Connection conn, JsonNode position) {
@@ -417,17 +473,14 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		if (getLich(conn.getHandle()) != null) {
 			conn.tell("error", "Already logged in!"); return;
 		}
-		try { 
-			Lichesser client = new Lichesser("wss://socket.lichess.org/socket",user,pwd);
+		LiSock sock = new LiSock("wss://socket.lichess.org/socket",user,pwd);
+		if (sock.logged_in()) {
 			log("Logged in " + user + "...");
-			lichs.put(conn.getHandle().toLowerCase(),client);
+			lichs.put(conn.getHandle().toLowerCase(),new Lichesser(sock,conn.getHandle()));
 			conn.tell("lichess_login_ok", conn.getHandle());
 			for (Connection c : serv.getAllConnections(true)) updateLichess(c);
 		}
-		catch (Exception fark) {
-			fark.printStackTrace();
-			conn.tell("lichess_login_fail", "Couldn't log in to lichess!");
-		}
+		else conn.tell("lichess_login_fail", "Couldn't log in to lichess!");
 	}
 	
 	@Override
@@ -439,7 +492,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	public void ctell(String sender, String msg, boolean echo) {
 		Chatter chatter;
 		if (sender == null) chatter = announcer;
-		else chatter = getLich(sender).chatter;
+		else chatter = getLich(sender);
 		if (chatter != null) {
 			ObjectNode obj = mapper.createObjectNode();
 			obj.set("chatter",chatter.chatterToJSON());
@@ -481,10 +534,10 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 			}
 			else if (chessplayer.checkBingo()) {
 					ChessPlayer loser = chessplayers.get(
-					chessplayer.gameData.get("game").get("id").asText() + chessplayer.opponent); 
+					chessplayer.sock.getGame().get("game").get("id").asText() + chessplayer.opponent); 
 					if (loser != null) {
 						ctell(chessplayer.handle + " bingos " + loser.handle + "!");
-						loser.gameSock.send(lichessDatagram("resign","").toString());
+						loser.sock.send(lichessDatagram("resign","").toString());
 					}
 					else log("ERROR: Opponent not found: " + loser);
 			}
@@ -506,7 +559,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 					move.put("from", data.get("from").asText());
 					move.put("to", data.get("to").asText());
 					obj.set("d", move);
-					chessplayer.gameSock.send(obj.toString());
+					chessplayer.sock.send(obj.toString());
 				}
 				catch (Exception wtf) { conn.tell("error", wtf.getMessage()); };
 			}
@@ -514,7 +567,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		}
 		else if (cmd.equalsIgnoreCase("ABORT")) {
 			if (chessplayer != null) {
-				chessplayer.gameSock.send(lichessDatagram("abort","").toString());
+				chessplayer.sock.send(lichessDatagram("abort","").toString());
 			}
 			else conn.tell("error", "Not playing!");
 		}
@@ -529,7 +582,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 			if (lich == null) conn.tell("error", "Not logged in!");
 			else if (chessplayer != null) conn.tell("error", "Already playing!");
 			else {
-				JsonNode newgame = lich.acceptChallenge(data.asText());
+				JsonNode newgame = lich.sock.acceptChallenge(data.asText());
 				if (newgame == null || newgame.asText().equals("404")) conn.tell("error", "No such game");
 				else if (newgame.get("error") != null) 	conn.tell("error", newgame.get("error").asText());
 				else {
@@ -544,7 +597,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		else if (cmd.equalsIgnoreCase("CHALLENGE")) {
 			if (lich == null) conn.tell("error", "Not logged in!");
 			else if (chessplayer != null) conn.tell("error", "Already playing!");
-			else lich.createChallenge(data.asText(),1,true,3,0,"random"); //TODO: customize
+			else lich.createChallenge(data.asText());
 		}
 		else if (cmd.equalsIgnoreCase("CANCEL")) {
 			if (lich == null) conn.tell("error", "Not logged in!");
@@ -587,8 +640,8 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	@Override
 	public void disconnected(Connection conn) {
 		//for (Player player : players.values()) player.removeObs(conn);
-		Lichesser l = getLich(conn.getHandle()); if (l != null) l.main_thread.getSock().end(); 
-		ChessPlayer p = getChessPlayer(conn.getHandle()); if (p != null) p.gameSock.end();
+		Lichesser l = getLich(conn.getHandle()); if (l != null) l.sock.end(); 
+		ChessPlayer p = getChessPlayer(conn.getHandle()); if (p != null) p.sock.end();
 	}
 
 	@Override
@@ -597,4 +650,3 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		for (Connection c : bingoer.observers) c.tell("card", bingoer.toJSON());
 	}
 }
-

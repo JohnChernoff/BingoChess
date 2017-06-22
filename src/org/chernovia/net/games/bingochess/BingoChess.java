@@ -29,16 +29,19 @@ import java.util.Vector;
 import org.bson.Document;
 import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Updates.*;
-import org.chernovia.lib.netgames.zugserv.ConnListener;
-import org.chernovia.lib.netgames.zugserv.Connection;
-import org.chernovia.lib.netgames.zugserv.WebSockConn;
-import org.chernovia.lib.netgames.zugserv.WebSockServ;
+
+import org.chernovia.lib.net.zugclient.WebSock;
+import org.chernovia.lib.net.zugclient.WebSockListener;
+import org.chernovia.lib.net.zugserv.ConnListener;
+import org.chernovia.lib.net.zugserv.Connection;
+import org.chernovia.lib.net.zugserv.WebSockConn;
+import org.chernovia.lib.net.zugserv.WebSockServ;
 import org.chernovia.lichess.*;
 import org.chernovia.lichess.gson.GameData;
 import org.chernovia.lichess.util.LichessUtils;
 import org.chernovia.twitch.TwitchBot;
 
-public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, BingoListener {
+public class BingoChess extends TwitchBot implements WebSockListener, ConnListener, BingoListener {
 	
 	public static final long TIMEOUT = 99999; //99.9 seconds, maybe should be shorter?
 
@@ -272,7 +275,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	@Override
-	public void gameMsg(GameSock sock, String message) {
+	public void sock_msg(WebSock sock, String message) {
 		try {
 			JsonNode node = mapper.readTree(message);
 			JsonNode type = node.get("t");
@@ -280,7 +283,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 			//if (data != null) log(message);
 			if (type != null) switch (type.textValue()) {
 				case "b": 
-					for (int i=0; i < data.size(); i++) gameMsg(sock,data.get(i).toString());
+					for (int i=0; i < data.size(); i++) sock_msg(sock,data.get(i).toString());
 					break;
 				case "move": 
 					newMove(data); 
@@ -301,7 +304,7 @@ public class BingoChess extends TwitchBot implements GameWatcher, ConnListener, 
 	}
 	
 	@Override
-	public void finished(GameSock sock) {
+	public void sock_fin(WebSock sock) {
 		log("Game finished!");
 		followTVGame();
 	}
