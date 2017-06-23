@@ -1,4 +1,4 @@
-//TODO: castling, find massive memory leak
+//TODO: castling
 //Do you get anything for a double bingo?
 //x3 gold for double, x6 for triple, etc.
 //sanity checks all over the place
@@ -150,14 +150,12 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		}
 	}
 	
-	class Lichesser extends LiClient {
+	public class Lichesser extends LiClient {
 		int wager = 10;
-		HashMap<String,JsonNode> incomingChallenges;
 		Chatter chatter;
 		
 		public Lichesser(String loc, String user, String pwd) throws Exception {
 			super(loc,user,pwd);
-			incomingChallenges = new HashMap<String,JsonNode>();
 			chatter = new Chatter(user);
 		}
 		
@@ -178,7 +176,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 						}
 						else chessgames.put(gid,new LichessGame(gid,opponent,username.toLowerCase()));
 					}
-					incomingChallenges.clear();
+					clearIncomingChallenges();
 					clearOutgoingChallenges();
 					for (Connection conn : getConns(username)) {
 							conn.tell("begin_lichess_game", playing.get(i));
@@ -201,7 +199,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 		
 		@Override
 		public void sock_msg(WebSock sock, String message) {
-			log(username + "--> New message: " + message);
+			//log(username + "--> New message: " + message);
 			try {
 				JsonNode node = mapper.readTree(message);
 				JsonNode type = node.get("t");
@@ -211,14 +209,15 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 						for (int i=0; i < data.size(); i++) sock_msg(sock,data.get(i).toString());
 						break;
 					case "challenges":
-						incomingChallenges.clear();
+						clearIncomingChallenges();
 						JsonNode in = data.get("in");
 						if (in.size() > 0) {
 							log("Challenge received as " + username + ": " + data.toString());
 							for (int i=0;i<in.size();i++) {
-								incomingChallenges.put(in.get(i).get("id").asText(),in.get(i)); 
+								addChallenge(in.get(i).get("id").asText(),in.get(i)); 
 							}
 							for (Connection conn : getConns(username)) updateChallenges(conn,this);
+							//String id = in.get(0).get("id").asText(); log("ACCEPTING: " + id); acceptChallenge(id);
 						}
 						break; 
 					default: 
@@ -273,10 +272,9 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	long lastMoveTime;
 			
 	public static void main(String[] args) {
-		try { LiClient.init(); } catch (Exception e) { e.printStackTrace(); }
+		//try { LiClient.init(); } catch (Exception e) { e.printStackTrace(); }
 		WebSockConn.VERBOSITY = 0;
 		new BingoChessChallenge(args);
-		//bingo.newPlayer("Zugx1"); bingo.newPlayer("Zugx2"); bingo.newPlayer("Zugx3");
 	}
 	
 	public BingoChessChallenge(String[] args) {
@@ -398,7 +396,7 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	private void updateChallenges(Connection conn, Lichesser lich) {
 		if (lich != null) {
 			ArrayNode array = mapper.createArrayNode();
-			for (JsonNode c : lich.incomingChallenges.values()) array.add(c);
+			for (JsonNode c : lich.getIncomingChallenges().values()) array.add(c);
 			conn.tell("challenges",array);
 		}
 	}
@@ -413,20 +411,26 @@ public class BingoChessChallenge extends TwitchBot implements BingoListener, Con
 	
 	private Lichesser getLich(String handle) { return lichs.get(handle.toLowerCase()); }
 	
+	public Lichesser newLichessLogin(String user, String pwd) throws Exception {
+		Lichesser lich = new Lichesser("wss://socket." + LiClient.LICHESS_ADDR + "/socket",user,pwd);
+		lichs.put(lich.username.toLowerCase(),lich);
+		return lich;
+	}
+	
 	private void newLichessLogin(Connection conn, String user, String pwd) {
+		Lichesser lich = null;
 		if (getLich(conn.getHandle()) != null) {
-			conn.tell("error", "Already logged in!"); return;
+			conn.tell("error", "Already logged in!"); 
 		}
-		try { 
-			Lichesser client = new Lichesser("wss://socket.lichess.org/socket",user,pwd);
-			log("Logged in " + user + "...");
-			lichs.put(conn.getHandle().toLowerCase(),client);
-			conn.tell("lichess_login_ok", conn.getHandle());
-			for (Connection c : serv.getAllConnections(true)) updateLichess(c);
-		}
+		try {  lich = newLichessLogin(user, pwd); }
 		catch (Exception fark) {
 			fark.printStackTrace();
 			conn.tell("lichess_login_fail", "Couldn't log in to lichess!");
+		}
+		if (lich != null) {
+			log("Logged in: " + lich.username);
+			conn.tell("lichess_login_ok", lich.username);
+			for (Connection c : serv.getAllConnections(true)) updateLichess(c);
 		}
 	}
 	
